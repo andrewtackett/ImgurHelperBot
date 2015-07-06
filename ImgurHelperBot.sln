@@ -3,6 +3,8 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImgurHelperBot", "ImgurHelperBot\ImgurHelperBot.csproj", "{71C99F99-16F9-4530-8777-357413D9C39B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImgurHelperBotTests", "ImgurHelperBotUnitTests\ImgurHelperBotTests.csproj", "{D0FF9B55-A96B-48FC-BF26-4F30B4319559}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -13,5 +15,9 @@ Global
 		{71C99F99-16F9-4530-8777-357413D9C39B}.Debug|x86.Build.0 = Debug|x86
 		{71C99F99-16F9-4530-8777-357413D9C39B}.Release|x86.ActiveCfg = Release|x86
 		{71C99F99-16F9-4530-8777-357413D9C39B}.Release|x86.Build.0 = Release|x86
+		{D0FF9B55-A96B-48FC-BF26-4F30B4319559}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D0FF9B55-A96B-48FC-BF26-4F30B4319559}.Debug|x86.Build.0 = Debug|Any CPU
+		{D0FF9B55-A96B-48FC-BF26-4F30B4319559}.Release|x86.ActiveCfg = Release|Any CPU
+		{D0FF9B55-A96B-48FC-BF26-4F30B4319559}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
