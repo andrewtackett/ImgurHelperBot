@@ -35,7 +35,7 @@ namespace ImgurHelperBot
 		}
 
 		public HttpWebRequest craftRequest(string url, imgurType type){
-			string id = url.Substring(url.LastIndexOf("/") + 1);
+			string id = getID (url,type);
 
 			Console.WriteLine ("id: " + id + ", url: " + url);
 			HttpWebRequest webRequest;// = (HttpWebRequest)WebRequest.Create("http://google.com");
@@ -59,6 +59,27 @@ namespace ImgurHelperBot
 			}
 
 			return webRequest;
+		}
+
+		public string getID(string url,imgurType type){
+			string id = url;
+			int startIndex = 0;
+			char[] delimiters = { '/', ',', '.', '#' };
+			switch (type) {
+				case imgurType.album:
+					startIndex = id.IndexOf ("/a/") + 3;
+					break;
+				case imgurType.galleryAlbum:
+				case imgurType.galleryImage:
+					startIndex = id.IndexOf("gallery/") + 8;
+					break;
+				case imgurType.image:
+					startIndex = id.IndexOf (".com/") + 5;
+					break;
+			}
+			id = id.Substring (startIndex);
+			string[] tokens = id.Split (delimiters, id.Length);
+			return tokens [0];
 		}
 
 		//Returns string containing response from server
@@ -204,7 +225,7 @@ namespace ImgurHelperBot
 			ImgurConnector myParser = new ImgurConnector ();
 			List<string> urls;
 
-			//TODO: handle unusual urls: https://imgur.com/a/QMmR2#0
+			//TODO: handle unusual urls: 
 			/*entry point	content
 			imgur.com/{image_id}	image
 			imgur.com/{image_id}.extension	direct link to image (no html)
@@ -212,8 +233,15 @@ namespace ImgurHelperBot
 			imgur.com/a/{album_id}#{image_id}	single image from an album
 			imgur.com/gallery/{gallery_post_id}	gallery
 			*/
-			//http://imgur.com/8UtzD83,6aG8utZ,RHymzpg,kmh2AUL,MOwVxNw,wbFYpJ1#5
-			//http://imgur.com/gallery/KmB7kFV/new?forcedesktop=1
+			//string url = "https://imgur.com/a/QMmR2#0";
+
+			//string url = "http://imgur.com/8UtzD83,6aG8utZ,RHymzpg,kmh2AUL,MOwVxNw,wbFYpJ1#5";
+
+
+			//string url = "http://imgur.com/gallery/KmB7kFV/new?forcedesktop=1";
+
+
+
 			//string url = "http://imgur.com/cQH87QL";
 
 			//nonworking - working
