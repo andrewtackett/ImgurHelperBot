@@ -17,6 +17,48 @@ namespace ImgurHelperBot
 			}
 		}
 
+		public List<string> parseUrl(string url){
+			HttpWebRequest[] webRequests;
+			imgurType curType = this.getType(url);
+			List<string> urls = new List<string>();
+
+			//Don't worry about urls that are already direct links
+			if (url.Contains (".jpg") || url.Contains (".png") || url.Contains (".gif")) {
+				//TODO ignore
+			}
+
+			//Pick how to make the request based on the url, otherwise imgur will give us a 404 error
+			webRequests = this.craftRequest(url,curType);
+
+			//TODO redo for multiple
+			//TODO redo failure for multiple
+			foreach (HttpWebRequest webRequest in webRequests) {
+				Console.WriteLine ("request: " + webRequest.Address);
+
+				string responseFromServer = this.performRequest (webRequest);
+
+				if (responseFromServer != null) {
+					JObject json;
+					//Handle case where we queried with the wrong data model (gallery album instead of image)
+					if (!responseFromServer.Equals ("404")) {
+						json = JObject.Parse (responseFromServer);
+
+						urls.AddRange(this.getImageLinks (json, curType));
+					} else {
+						curType = imgurType.galleryImage;
+					}
+					Console.WriteLine ("response:" + responseFromServer);
+				} else {
+					//web request failed
+					Console.WriteLine ("Query failed 3");
+					//log output for examination
+					Console.WriteLine ("url: " + url);
+				}
+			}
+
+			return urls;
+		}
+
 		public imgurType getType(string url){
 			//Gallery album type - https://api.imgur.com/models/gallery_album
 			//Or may be gallery image type - https://api.imgur.com/models/gallery_image
@@ -34,52 +76,73 @@ namespace ImgurHelperBot
 			}
 		}
 
-		public HttpWebRequest craftRequest(string url, imgurType type){
-			string id = getID (url,type);
+		public HttpWebRequest[] craftRequest(string url, imgurType type){
+			string[] ids = getID (url,type);
+			foreach (string id in ids) {
+				Console.WriteLine ("id:" + id);
+			}
+			Console.WriteLine ("url: " + url);
+			List<HttpWebRequest> webRequests = new List<HttpWebRequest>();// = (HttpWebRequest)WebRequest.Create("http://google.com");
 
-			Console.WriteLine ("id: " + id + ", url: " + url);
-			HttpWebRequest webRequest;// = (HttpWebRequest)WebRequest.Create("http://google.com");
-
-			switch (type) {
-				case imgurType.galleryAlbum:
-					webRequest = (HttpWebRequest)WebRequest.Create("https://api.imgur.com/3/gallery/album/" + id);
-					break;
-				case imgurType.galleryImage:
-					webRequest = (HttpWebRequest)WebRequest.Create("https://api.imgur.com/3/gallery/image/" + id);
-					break;
-				case imgurType.album:
-					webRequest = (HttpWebRequest)WebRequest.Create("https://api.imgur.com/3/album/" + id);
-					break;
-				case imgurType.image:
-					webRequest = (HttpWebRequest)WebRequest.Create("https://api.imgur.com/3/image/" + id);
-					break;
-				default:
-					webRequest = (HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/image/" + id);
-					break;
+			foreach (string id in ids) {
+				switch (type) {
+					case imgurType.galleryAlbum:
+						webRequests.Add ((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/gallery/album/" + id));
+						//Add in gallery image in case this isn't an album
+						webRequests.Add ((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/gallery/image/" + id));
+						break;
+					case imgurType.galleryImage:
+						webRequests.Add((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/gallery/image/" + id));
+						break;
+					case imgurType.album:
+						webRequests.Add((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/album/" + id));
+						break;
+					case imgurType.image:
+						webRequests.Add((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/image/" + id));
+						break;
+					default:
+						webRequests.Add((HttpWebRequest)WebRequest.Create ("https://api.imgur.com/3/image/" + id));
+						break;
+				}
 			}
 
-			return webRequest;
+			return webRequests.ToArray();
 		}
 
-		public string getID(string url,imgurType type){
-			string id = url;
+		public string[] getID(string url,imgurType type){
+			string idString = url;
 			int startIndex = 0;
 			char[] delimiters = { '/', ',', '.', '#' };
+			string[] tokens = new string[0];
 			switch (type) {
 				case imgurType.album:
-					startIndex = id.IndexOf ("/a/") + 3;
+					startIndex = idString.IndexOf ("/a/") + 3;
+					idString = idString.Substring (startIndex);
+					tokens = idString.Split (delimiters, idString.Length);
+					Array.Resize (ref tokens, 1);
 					break;
 				case imgurType.galleryAlbum:
 				case imgurType.galleryImage:
-					startIndex = id.IndexOf("gallery/") + 8;
+					startIndex = idString.IndexOf("gallery/") + 8;
+					idString = idString.Substring (startIndex);
+					tokens = idString.Split (delimiters, idString.Length);
+					Array.Resize (ref tokens, 1);
 					break;
-				case imgurType.image:
-					startIndex = id.IndexOf (".com/") + 5;
+			case imgurType.image:
+					startIndex = idString.IndexOf (".com/") + 5;
+					int length;
+						//Trim off the image selector if present
+					if (idString.IndexOf ("#") != -1) {
+						length = idString.IndexOf ("#") - startIndex;
+					} else {
+						length = idString.Length - startIndex;
+					}
+					idString = idString.Substring (startIndex, length);
+					Console.WriteLine ("Substring:" + idString);
+					tokens = idString.Split(delimiters);
 					break;
 			}
-			id = id.Substring (startIndex);
-			string[] tokens = id.Split (delimiters, id.Length);
-			return tokens [0];
+			return tokens;
 		}
 
 		//Returns string containing response from server
@@ -113,110 +176,40 @@ namespace ImgurHelperBot
 		public List<string> getImageLinks(JObject json,imgurType type){
 			List<string> links = new List<string> ();
 			switch (type) {
-			case imgurType.galleryAlbum:
-				bool success = bool.Parse (json ["success"].ToString ());
-				Console.WriteLine ("success: " + success);
-				//galleryAlbum type
-				if (success) {
+				case imgurType.galleryAlbum:
+					bool success = bool.Parse (json ["success"].ToString ());
+					Console.WriteLine ("success: " + success);
+					//galleryAlbum type
+					if (success) {
+						foreach (JToken token in json["data"]["images"]) {
+							links.Add (token ["link"].ToString ());
+						}
+					//galleryImage type, we'll need to do another request to extract the data
+					//TODO redo
+					} else {
+						links.Add(json["data"]["link"].ToString());
+						//links.Add("error");
+						//links.Add("galleryImage");
+					}
+					break;
+				case imgurType.galleryImage:
+					links.Add(json["data"]["link"].ToString());
+					break;
+				case imgurType.album:
 					foreach (JToken token in json["data"]["images"]) {
 						links.Add (token ["link"].ToString ());
 					}
-				//galleryImage type, we'll need to do another request to extract the data
-				} else {
-					links.Add("error");
-					links.Add("galleryImage");
-				}
-				break;
-			case imgurType.galleryImage:
-				links.Add(json["data"]["link"].ToString());
-				break;
-			case imgurType.album:
-				foreach (JToken token in json["data"]["images"]) {
-					links.Add (token ["link"].ToString ());
-				}
-				break;
-			case imgurType.image:
-				links.Add((string)json["data"]["link"]);
-				Console.WriteLine ("Image Link: " + links[0]);
-				break;
-			default:
-				//shouldn't get here
-				links.Add ("test");
-				break;
+					break;
+				case imgurType.image:
+					links.Add((string)json["data"]["link"]);
+					Console.WriteLine ("Image Link: " + links[0]);
+					break;
+				default:
+					//shouldn't get here
+					links.Add ("test");
+					break;
 			}
 			return links;
-
-		}
-
-		public List<string> parseUrl(string url){
-			HttpWebRequest webRequest;
-			imgurType curType = this.getType(url);
-			List<string> urls = new List<string>();
-
-			//Don't worry about urls that are already direct links
-			if (url.Contains (".jpg") || url.Contains (".png") || url.Contains (".gif")) {
-				//ignore
-			}
-
-			//Pick how to make the request based on the url, otherwise imgur will give us a 404 error
-			webRequest = this.craftRequest(url,curType);
-
-			Console.WriteLine ("request: " + webRequest.Address);
-
-			string responseFromServer = this.performRequest (webRequest);
-
-			if (responseFromServer != null) {
-				JObject json;
-				//Handle case where we queried with the wrong data model (gallery album instead of image)
-				if (!responseFromServer.Equals ("404")) {
-					json = JObject.Parse (responseFromServer);
-
-					urls = this.getImageLinks (json, curType);
-				} else {
-					urls = new List<string> ();
-					urls.Add ("error");
-				}
-				Console.WriteLine ("response:" + responseFromServer);
-
-
-				//Probably gallery image not gallery album, retry the request for the correct type
-				if (urls.Count > 0 && urls [0].Equals ("error")) {
-					urls.Clear();
-					webRequest = this.craftRequest(url,imgurType.galleryImage);
-					Console.WriteLine ("request: " + webRequest.Address);
-
-					Console.WriteLine ("Gallery Image?");
-
-					responseFromServer = this.performRequest (webRequest);
-
-					if (responseFromServer != null) {
-						if (!responseFromServer.Equals ("404")) {
-							json = JObject.Parse (responseFromServer);
-
-							urls = this.getImageLinks (json, imgurType.galleryImage);
-						} else {
-							//web request failed
-							Console.WriteLine("Query failed 1");
-							//log output for examination
-							Console.WriteLine("url: " + url);
-						}
-					} else {
-						//web request failed
-						Console.WriteLine("Query failed 2");
-						//log output for examination
-						Console.WriteLine("url: " + url);
-					}
-				}
-
-				Console.WriteLine ("response from server:" + responseFromServer);
-			} else {
-				//web request failed
-				Console.WriteLine("Query failed 3");
-				//log output for examination
-				Console.WriteLine("url: " + url);
-			}
-
-			return urls;
 		}
 
 		//TODO: add code to handle retrying with gallery image if not gallery album
@@ -241,16 +234,16 @@ namespace ImgurHelperBot
 			//string url = "http://imgur.com/gallery/KmB7kFV/new?forcedesktop=1";
 
 
+			//image
+			string url = "http://imgur.com/cQH87QL";
 
-			//string url = "http://imgur.com/cQH87QL";
+			//nonworking
+			//string url = "http://imgur.com/gallery/0ENTp";
 
-			//nonworking - working
-			string url = "http://imgur.com/gallery/0ENTp";
-
-			//gallery image - working
+			//gallery image 
 			//string url = "http://imgur.com/gallery/A6DVKa3";
 
-			//gallery album - working
+			//gallery album 
 			//string url = "http://imgur.com/gallery/UdaKS";
 
 			//album - working
@@ -263,79 +256,6 @@ namespace ImgurHelperBot
 			foreach (string link in urls) {
 				Console.WriteLine (link);
 			}
-
-			/*HttpWebRequest webRequest;
-			imgurType curType = myParser.getType(url);
-			List<string> urls;
-
-			//Don't worry about urls that are already direct links
-			if (url.Contains (".jpg") || url.Contains (".png") || url.Contains (".gif")) {
-				//ignore
-			}
-
-			//Pick how to make the request based on the url, otherwise imgur will give us a 404 error
-			webRequest = myParser.craftRequest(url,curType);
-
-			Console.WriteLine ("request: " + webRequest.Address);
-
-			string responseFromServer = myParser.performRequest (webRequest);
-
-			if (responseFromServer != null) {
-				JObject json;
-				//Handle case where we queried with the wrong data model (gallery album instead of image)
-				if (!responseFromServer.Equals ("404")) {
-					json = JObject.Parse (responseFromServer);
-
-					urls = myParser.getImageLinks (json, curType);
-				} else {
-					urls = new List<string> ();
-					urls.Add ("error");
-				}
-				Console.WriteLine ("response:" + responseFromServer);
-
-
-				//Probably gallery image not gallery album, retry the request for the correct type
-				if (urls.Count > 0 && urls [0].Equals ("error")) {
-					urls.Clear();
-					webRequest = myParser.craftRequest(url,imgurType.galleryImage);
-					Console.WriteLine ("request: " + webRequest.Address);
-
-					Console.WriteLine ("Gallery Image?");
-
-					responseFromServer = myParser.performRequest (webRequest);
-
-					if (responseFromServer != null) {
-						if (!responseFromServer.Equals ("404")) {
-							json = JObject.Parse (responseFromServer);
-
-							urls = myParser.getImageLinks (json, imgurType.galleryImage);
-						} else {
-							//web request failed
-							Console.WriteLine("Query failed 1");
-							//log output for examination
-							Console.WriteLine("url: " + url);
-						}
-					} else {
-						//web request failed
-						Console.WriteLine("Query failed 2");
-						//log output for examination
-						Console.WriteLine("url: " + url);
-					}
-				}
-
-				Console.WriteLine ("response from server:" + responseFromServer);
-
-				//Display gathered links
-				Console.WriteLine ("Links:");
-				foreach (string link in urls) {
-					Console.WriteLine (link);
-				}
-			} else {
-				//web request failed
-				Console.WriteLine("Query failed 3");
-				//log output for examination
-				Console.WriteLine("url: " + url);
-			}*/
 		}
 	}
 }
