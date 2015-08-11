@@ -15,6 +15,12 @@ namespace ImgurHelperBot
 		}
 
 		[Test ()]
+		public void directLink()
+		{
+			testURL ("http://i.imgur.com/KkgrBY2.jpg",1);
+		}
+
+		[Test ()]
 		//[Ignore ()]
 		public void image ()
 		{
@@ -50,7 +56,7 @@ namespace ImgurHelperBot
 		}
 
 		[Test ()]
-		[Ignore ()]
+		//[Ignore ()]
 		public void albumSelectorAdded ()
 		{
 			testURL("https://imgur.com/a/QMmR2#0",22);
@@ -64,7 +70,7 @@ namespace ImgurHelperBot
 		}
 
 		[Test ()]
-		[Ignore ()]
+		//[Ignore ()]
 		public void galleryImageNonWorking ()
 		{
 			testURL("http://imgur.com/gallery/0ENTp",0);
