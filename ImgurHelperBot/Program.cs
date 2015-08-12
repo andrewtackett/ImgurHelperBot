@@ -4,6 +4,7 @@ using System.Net;
 using System.IO;
 using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
+using System.Text;
 
 namespace ImgurHelperBot
 {
@@ -24,6 +25,7 @@ namespace ImgurHelperBot
 			HttpWebRequest[] webRequests;
 			imgurType curType = this.getType(url);
 			List<string> urls = new List<string>();
+			Console.WriteLine ("original url: " + url);
 
 			//Don't worry about urls that are already direct links
 			if (url.Contains (".jpg") || url.Contains (".png") || url.Contains (".gif")) 
@@ -234,6 +236,10 @@ namespace ImgurHelperBot
 			return links;
 		}
 
+		//TODO rate limit posts to 10 minutes for new account
+		//TODO queue up posts that violate rate limit
+		//TODO add second thread for posting from queue
+		//TODO check for direct links in main
 		public static void Main (string[] args)
 		{
 			ImgurConnector myParser = new ImgurConnector ();
@@ -245,79 +251,61 @@ namespace ImgurHelperBot
 			int limit = 0;
 			foreach (var post in subreddit.New)
 			{
+				Console.WriteLine ("=====================================================");
+				Console.WriteLine ("author: " + post.Author);
+				Console.WriteLine ("title: " + post.Title);
 				//Only look at urls from imgur
-				if (post.Url.Host.Contains ("imgur")) 
-				{
+				if (post.Url.Host.Contains ("imgur")) {
 					bool alreadyCommented = false;
-					foreach (var comment in post.Comments) 
-					{
+					foreach (var comment in post.Comments) {
 						//If we've already commented on this thread ignore it
-						if (comment.Author == "imgurhelperbot") 
-						{
+						if (comment.Author == "imgurhelperbot") {
+							Console.WriteLine ("Already commented on this post.  Comment:");
+							Console.WriteLine (comment.Body);
 							alreadyCommented = true;
 							break;
 						}
 					}
 					if (alreadyCommented)
-						break;
+						continue;
 					List<string> urls;
-
-					urls = myParser.parseUrl(post.Url.AbsolutePath);
+					Console.WriteLine ("post.url:" + post.Url);
+					Console.WriteLine ("url left part: " + post.Url.GetLeftPart (UriPartial.Path));
+					urls = myParser.parseUrl (post.Url.GetLeftPart (UriPartial.Path));
 
 					//Display gathered links
 					Console.WriteLine ("Links:");
 					foreach (string link in urls) {
 						Console.WriteLine (link);
 					}
+					StringBuilder sb = new StringBuilder ();
+					sb.Append ("Direct image links:");
+					sb.AppendLine ();
+					foreach (var link in urls) 
+					{
+						sb.Append (link);
+						sb.AppendLine();
+					}
+					Console.WriteLine ("sb output:" + sb.ToString ());
+					try
+					{
+						post.Comment (sb.ToString ());
+					}catch(RedditSharp.RateLimitException ex) 
+					{
+						//Could we use delegates here and spawn a timer thread to kick off a post attempt later?
+						Console.WriteLine (ex.Data);
+						Console.WriteLine ("Rate limit hit!  Trying again in ~9 minutes");
+						System.Threading.Thread.Sleep (600000);
+						post.Comment (sb.ToString ());
+					}
+				} else 
+				{
+					Console.WriteLine ("not an imgur post");
 				}
 				limit++;
 				if (limit > 25)
 					break;
-				
-				/*Console.WriteLine ("Post: " + post.Title);
-				Console.WriteLine ("URL: " + post.Url);
-				if (post.Title == "What is my karma?")
-				{
-					// Note: This is an example. Bots are not permitted to cast votes automatically.
-					//post.Upvote();
-					var comment = post.Comment(string.Format("You have {0} link karma!", post.Author.LinkKarma));
-					//comment.Distinguish(DistinguishType.Moderator);
-				}*/
 			}
-			//TODO make sure to only look for imgur urls
-
-
-			//ImgurConnector myParser = new ImgurConnector ();
-			//List<string> urls;
- 
-			/*	entry point	content
-				imgur.com/{image_id}	image
-				imgur.com/{image_id}.extension	direct link to image (no html)
-				imgur.com/a/{album_id}	album
-				imgur.com/a/{album_id}#{image_id}	single image from an album
-				imgur.com/gallery/{gallery_post_id}	gallery
-			*/
-			//string url = "https://imgur.com/a/QMmR2#0";
-			//string url = "http://imgur.com/8UtzD83,6aG8utZ,RHymzpg,kmh2AUL,MOwVxNw,wbFYpJ1#5";
-			//string url = "http://imgur.com/gallery/KmB7kFV/new?forcedesktop=1";
-			//image
-			//string url = "http://imgur.com/cQH87QL";
-			//nonworking
-			//string url = "http://imgur.com/gallery/0ENTp";
-			//gallery image 
-			//string url = "http://imgur.com/gallery/A6DVKa3";
-			//gallery album 
-			//string url = "http://imgur.com/gallery/UdaKS";
-			//album - working
-			//string url = "http://imgur.com/a/G3oj0";
-
-			/*urls = myParser.parseUrl(url);
-
-			//Display gathered links
-			Console.WriteLine ("Links:");
-			foreach (string link in urls) {
-				Console.WriteLine (link);
-			}*/
 		}
 	}
 }
