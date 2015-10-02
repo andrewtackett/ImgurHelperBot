@@ -1,17 +1,78 @@
 ﻿using System;
 using RedditSharp;
+using RedditSharp.Things;
 using System.Net;
 using System.IO;
 using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
 using System.Text;
+using System.Collections.Concurrent;
+using System.Threading;
 
 namespace ImgurHelperBot
 {
+    public class PostWriter
+    {
+        private BlockingCollection<PostData> buffer;
+
+        public PostWriter(BlockingCollection<PostData> linkBuffer)
+        {
+            buffer = linkBuffer;
+        }
+
+        public void writePosts()
+        {
+            while(!buffer.IsAddingCompleted || buffer.Count > 0)
+            {
+                PostData pd;
+                try
+                {
+                    pd = buffer.Take();
+                    try
+                    {
+                        pd.parentPost.Comment(pd.comment);
+                        Console.WriteLine("Wrote: " + pd.comment + ", in post: " + pd.parentPost.Permalink); 
+                    }
+                    catch (RedditSharp.RateLimitException ex)
+                    {
+                        Console.WriteLine(ex.Data);
+                        Console.WriteLine("Rate limit hit!  We'll try again later");
+                        //Since reddit sharp naturally limits us to the normal minimum assume we've hit the new account rate limit of 9 minutes and wait ~10 to make sure we've cleared it
+                        System.Threading.Thread.Sleep(600000);
+                        buffer.Add(pd);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    Console.WriteLine("Ran out of things to post! Shutting down");
+                }
+            }
+        }
+    }
+
+    public class PostData
+    {
+        public string comment;
+        public Post parentPost;
+
+        public PostData(string comment, Post parentPost)
+        {
+            this.comment = comment;
+            this.parentPost = parentPost;
+        }
+    }
+
 	public enum imgurType { galleryImage, galleryAlbum, album, image };
 
 	public class ImgurConnector
 	{
+        private string imgurClientID;
+
+        public ImgurConnector(string clientID)
+        {
+            imgurClientID = clientID;
+        }
+
 		public void getProperties(JObject json)
 		{
 			foreach (JProperty property in json.Properties())
@@ -30,12 +91,11 @@ namespace ImgurHelperBot
 			//Don't worry about urls that are already direct links
 			if (url.Contains (".jpg") || url.Contains (".png") || url.Contains (".gif")) 
 			{
-				urls.Add(url);
 				return urls;
 			}
 
 			//Pick how to make the request based on the url, otherwise imgur will give us a 404 error
-			webRequests = this.craftRequest(url,curType);
+			webRequests = this.craftRequests(url,curType);
 			foreach (HttpWebRequest webRequest in webRequests) 
 			{
 				Console.WriteLine ("request: " + webRequest.Address);
@@ -87,7 +147,7 @@ namespace ImgurHelperBot
 			}
 		}
 
-		public HttpWebRequest[] craftRequest(string url, imgurType type)
+		public HttpWebRequest[] craftRequests(string url, imgurType type)
 		{
 			string[] ids = getID (url,type);
 			foreach (string id in ids) 
@@ -130,6 +190,8 @@ namespace ImgurHelperBot
 			int startIndex = 0;
 			char[] delimiters = { '/', ',', '.', '#' };
 			string[] tokens = new string[0];
+            if (url.Equals(""))
+                return tokens;
 			switch (type) 
 			{
 				case imgurType.album:
@@ -165,7 +227,7 @@ namespace ImgurHelperBot
 		//Returns string containing response from server
 		public string performRequest(HttpWebRequest webRequest)
 		{
-			webRequest.Headers.Add("Authorization", "Client-ID b1949cd535a4805");
+			webRequest.Headers.Add("Authorization", "Client-ID " + imgurClientID);
 			try
 			{
 				Stream response = webRequest.GetResponse().GetResponseStream();
@@ -236,15 +298,59 @@ namespace ImgurHelperBot
 			return links;
 		}
 
+        public string buildComment(List<string> urls)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("Direct image links:");
+            sb.AppendLine();
+            foreach (var link in urls)
+            {
+                sb.Append(link);
+                sb.AppendLine();
+            }
+            Console.WriteLine("sb output:" + sb.ToString());
+
+            return sb.ToString();
+        }
+
+        public static string[] getCredentials()
+        {
+            string[] creds;
+            try
+            {
+                creds = File.ReadAllLines("ImgurHelperBotCreds.txt");
+
+                if (creds.Length != 3)
+                {
+                    Console.WriteLine("Incorrect number of lines in ImgurHelperBotCreds.txt");
+                    Console.WriteLine("Number of lines: " + creds.Length);
+                    System.Environment.Exit(0);
+                }
+
+                return creds;
+            }
+            catch (FileNotFoundException)
+            {
+                Console.WriteLine("Couldn't find ImgurHelperBotCreds.txt in the same directory as executable");
+                System.Environment.Exit(0);
+            }
+
+            //Won't reach here, just exists to make the compiler happy
+            return new string[0];
+        }
+
 		//TODO rate limit posts to 10 minutes for new account
-		//TODO queue up posts that violate rate limit
-		//TODO add second thread for posting from queue
-		//TODO check for direct links in main
+		//TODO add cancellation/stop feature to shut down gracefully (need to do in consumer thread too)
+        //TODO check to see if getID can be simplified since we now use GetLeftPart
 		public static void Main (string[] args)
 		{
-			ImgurConnector myParser = new ImgurConnector ();
+            string[] creds = getCredentials();
+            BlockingCollection<PostData> linksBuffer = new BlockingCollection<PostData>(10000);
+            ImgurConnector myParser = new ImgurConnector(creds[2]);
+            PostWriter pw = new PostWriter(linksBuffer);
+            Thread consumerThread = new Thread(new ThreadStart(pw.writePosts));
+            consumerThread.Start();
 
-			string[] creds = File.ReadAllLines ("/Users/andrewtackett/Projects/ImgurHelperBotCreds.txt");
 			var reddit = new Reddit();
 			var user = reddit.LogIn(creds[0], creds[1]);
 			var subreddit = reddit.GetSubreddit("/r/test");
@@ -268,36 +374,27 @@ namespace ImgurHelperBot
 					}
 					if (alreadyCommented)
 						continue;
-					List<string> urls;
-					Console.WriteLine ("post.url:" + post.Url);
-					Console.WriteLine ("url left part: " + post.Url.GetLeftPart (UriPartial.Path));
-					urls = myParser.parseUrl (post.Url.GetLeftPart (UriPartial.Path));
+
+					//Console.WriteLine ("post.url:" + post.Url);
+					//Console.WriteLine ("url left part: " + post.Url.GetLeftPart (UriPartial.Path));
+					List<string> urls = myParser.parseUrl (post.Url.GetLeftPart (UriPartial.Path));
+
+                    //Direct image link so we should skip it
+                    if (urls.Count==0)
+                    {
+                        Console.WriteLine("Direct image link already: " + post.Url + ", skipping");
+                        continue;
+                    }
 
 					//Display gathered links
 					Console.WriteLine ("Links:");
 					foreach (string link in urls) {
 						Console.WriteLine (link);
 					}
-					StringBuilder sb = new StringBuilder ();
-					sb.Append ("Direct image links:");
-					sb.AppendLine ();
-					foreach (var link in urls) 
-					{
-						sb.Append (link);
-						sb.AppendLine();
-					}
-					Console.WriteLine ("sb output:" + sb.ToString ());
-					try
-					{
-						post.Comment (sb.ToString ());
-					}catch(RedditSharp.RateLimitException ex) 
-					{
-						//Could we use delegates here and spawn a timer thread to kick off a post attempt later?
-						Console.WriteLine (ex.Data);
-						Console.WriteLine ("Rate limit hit!  Trying again in ~9 minutes");
-						System.Threading.Thread.Sleep (600000);
-						post.Comment (sb.ToString ());
-					}
+
+                    string outputComment = myParser.buildComment(urls);
+                    PostData pd = new PostData(outputComment,post);
+                    linksBuffer.Add(pd);
 				} else 
 				{
 					Console.WriteLine ("not an imgur post");
@@ -306,6 +403,11 @@ namespace ImgurHelperBot
 				if (limit > 25)
 					break;
 			}
+
+            linksBuffer.CompleteAdding();
+            consumerThread.Join();
+            Console.WriteLine("Please press enter to exit...");
+            Console.Read();
 		}
 	}
 }

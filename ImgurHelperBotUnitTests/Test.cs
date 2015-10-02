@@ -1,6 +1,8 @@
 ﻿using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Net;
 
 namespace ImgurHelperBot
 {
@@ -11,13 +13,39 @@ namespace ImgurHelperBot
 
 		[SetUp]
 		public void ConnectorSetup(){
-			myParse = new ImgurConnector ();
+            string[] creds;
+            try
+            {
+                creds = File.ReadAllLines("ImgurHelperBotCreds.txt");
+            }
+            catch (FileNotFoundException)
+            {
+                Console.WriteLine("Couldn't find ImgurHelperBotCreds.txt in the same directory as executable");
+                return;
+            }
+            if (creds.Length != 3)
+            {
+                Console.WriteLine("Incorrect number of lines in ImgurHelperBotCreds.txt");
+                Console.WriteLine("Number of lines: " + creds.Length);
+                return;
+            }
+			myParse = new ImgurConnector (creds[2]);
 		}
+
+        //Unit Tests
+        [Test ()]
+        public void emptyURL()
+        {
+            HttpWebRequest[] webRequests = myParse.craftRequests("",imgurType.album);
+            Assert.AreEqual(webRequests.Length, 0);
+        }
+
+        //Integratino Tests
 
 		[Test ()]
 		public void directLink()
 		{
-			testURL ("http://i.imgur.com/KkgrBY2.jpg",1);
+			testURL ("http://i.imgur.com/KkgrBY2.jpg",0);
 		}
 
 		[Test ()]
